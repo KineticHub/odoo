@@ -10,9 +10,9 @@ class TestCreatePicking(common.TestProductCommon):
 
     def setUp(self):
         super(TestCreatePicking, self).setUp()
-        self.partner_id = self.env.ref('base.res_partner_1')
-        self.product_id_1 = self.env.ref('product.product_product_8')
-        self.product_id_2 = self.env.ref('product.product_product_11')
+        self.partner_id = self.env['res.partner'].create({'name': 'Wood Corner Partner'})
+        self.product_id_1 = self.env['product.product'].create({'name': 'Large Desk'})
+        self.product_id_2 = self.env['product.product'].create({'name': 'Conference Chair'})
         res_users_purchase_user = self.env.ref('purchase.group_purchase_user')
 
         Users = self.env['res.users'].with_context({'no_reset_password': True, 'mail_create_nosubscribe': True})
@@ -55,7 +55,7 @@ class TestCreatePicking(common.TestProductCommon):
         self.picking = self.po.picking_ids[0]
         for ml in self.picking.move_line_ids:
             ml.qty_done = ml.product_uom_qty
-        self.picking.action_done()
+        self.picking._action_done()
         self.assertEqual(self.po.order_line.mapped('qty_received'), [7.0], 'Purchase: all products should be received')
 
 
@@ -446,7 +446,7 @@ class TestCreatePicking(common.TestProductCommon):
         purchase_order_line.write({'date_planned': purchase_order_line.date_planned + timedelta(days=5)})
 
         # Now check scheduled date of delivery order is changed or not.
-        self.assertEquals(purchase_order_line.date_planned, delivery_order.scheduled_date,
+        self.assertEqual(purchase_order_line.date_planned, delivery_order.scheduled_date,
             'Delivery order schedule date should be changed as we have set date propagate.')
 
     def test_06_no_propagate_date(self):
@@ -466,5 +466,5 @@ class TestCreatePicking(common.TestProductCommon):
         purchase_order_line.write({'date_planned': purchase_order_line.date_planned + timedelta(days=5)})
 
         # Now check scheduled date of delivery order is changed or not.
-        self.assertNotEquals(purchase_order_line.date_planned, delivery_order.scheduled_date,
+        self.assertNotEqual(purchase_order_line.date_planned, delivery_order.scheduled_date,
             'Delivery order schedule date should not changed.')

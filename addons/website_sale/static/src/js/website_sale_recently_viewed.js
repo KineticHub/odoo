@@ -127,7 +127,7 @@ publicWidget.registry.productsRecentlyViewedSnippet = publicWidget.Widget.extend
      */
     _addCarousel: function () {
         var carousel = config.device.size_class <= config.device.SIZES.SM ? this.mobileCarousel : this.webCarousel;
-        this.$('.slider').html(carousel).css('display', ''); // TODO removing the style is useless in master
+        this.$('.slider').html(carousel).css('display', ''); // Removing display is kept for compatibility (it was hidden before)
     },
 
     //--------------------------------------------------------------------------

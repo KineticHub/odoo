@@ -152,7 +152,7 @@ class IrHttp(models.AbstractModel):
             wdate = attach[0]['__last_update']
             datas = attach[0]['datas'] or b''
             name = attach[0]['name']
-            checksum = attach[0]['checksum'] or hashlib.sha1(datas).hexdigest()
+            checksum = attach[0]['checksum'] or hashlib.sha512(datas).hexdigest()[:64]  # sha512/256
 
             if (not datas and name != request.httprequest.path and
                     name.startswith(('http://', 'https://', '/'))):
@@ -250,9 +250,11 @@ class IrHttp(models.AbstractModel):
 
     @classmethod
     def routing_map(cls, key=None):
+
         if not hasattr(cls, '_routing_map'):
             cls._routing_map = {}
             cls._rewrite_len = {}
+
         if key not in cls._routing_map:
             _logger.info("Generating routing map for key %s" % str(key))
             installed = request.registry._init_modules | set(odoo.conf.server_wide_modules)

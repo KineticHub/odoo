@@ -262,7 +262,7 @@ var InputField = DebouncedField.extend({
             inputAttrs = _.extend(inputAttrs, { type: 'password', autocomplete: 'new-password' });
             inputVal = this.value || '';
         } else {
-            inputAttrs = _.extend(inputAttrs, { type: 'text', autocomplete: this.attrs.autocomplete });
+            inputAttrs = _.extend(inputAttrs, { type: 'text', autocomplete: this.attrs.autocomplete || 'none'});
             inputVal = this._formatValue(this.value);
         }
 
@@ -1600,13 +1600,6 @@ var CopyClipboard = {
     /**
      * @override
      */
-    _render: function () {
-        this._super.apply(this, arguments);
-        this.$el.addClass('o_field_copy');
-    },
-    /**
-     * @override
-     */
     _renderReadonly: function () {
         this._super.apply(this, arguments);
         if (this.value) {
@@ -1619,11 +1612,13 @@ var CopyClipboard = {
 var TextCopyClipboard = FieldText.extend(CopyClipboard, {
     description: _lt("Copy to Clipboard"),
     clipboardTemplate: 'CopyClipboardText',
+    className: "o_field_copy",
 });
 
 var CharCopyClipboard = FieldChar.extend(CopyClipboard, {
     description: _lt("Copy to Clipboard"),
     clipboardTemplate: 'CopyClipboardChar',
+    className: 'o_field_copy o_text_overflow',
 });
 
 var AbstractFieldBinary = AbstractField.extend({
@@ -1638,7 +1633,8 @@ var AbstractFieldBinary = AbstractField.extend({
         this._super.apply(this, arguments);
         this.fields = record.fields;
         this.useFileAPI = !!window.FileReader;
-        this.max_upload_size = 25 * 1024 * 1024; // 25Mo
+        this.max_upload_size = 64 * 1024 * 1024; // 64Mo
+        this.accepted_file_extensions = (this.nodeOptions && this.nodeOptions.accepted_file_extensions) || this.accepted_file_extensions || '*';
         if (!this.useFileAPI) {
             var self = this;
             this.fileupload_id = _.uniqueId('o_fileupload');
@@ -1770,6 +1766,7 @@ var FieldBinaryImage = AbstractFieldBinary.extend({
         'i': 'png',
         'P': 'svg+xml',
     },
+    accepted_file_extensions: 'image/*',
     /**
      * Returns the image URL from a model.
      *
@@ -1981,6 +1978,7 @@ var FieldPdfViewer = FieldBinaryFile.extend({
     description: _lt("PDF Viewer"),
     supportedFieldTypes: ['binary'],
     template: 'FieldPdfViewer',
+    accepted_file_extensions: 'application/pdf',
     /**
      * @override
      */

@@ -238,13 +238,16 @@ class Warehouse(models.Model):
                         ('active', '=', False)
                     ])
                     if existing_route:
-                        existing_route.write({'active': True})
+                        existing_route.toggle_active()
                     else:
                         warehouse.create_resupply_routes(to_add)
                 if to_remove:
-                    Route.search([('supplied_wh_id', '=', warehouse.id), ('supplier_wh_id', 'in', to_remove.ids)]).write({'active': False})
-                    # TDE FIXME: shouldn't we remove stock rules also ? because this could make them global (not sure)
-
+                    to_disable_route_ids = Route.search([
+                        ('supplied_wh_id', '=', warehouse.id),
+                        ('supplier_wh_id', 'in', to_remove.ids),
+                        ('active', '=', True)
+                    ])
+                    to_disable_route_ids.toggle_active()
         return res
 
     @api.model
@@ -254,7 +257,7 @@ class Warehouse(models.Model):
         ResCompany = self.env['res.company']
         if company_id:
             transit_loc = ResCompany.browse(company_id).internal_transit_location_id.id
-            self.env['res.partner'].browse(partner_id).with_context(force_company=company_id).write({'property_stock_customer': transit_loc, 'property_stock_supplier': transit_loc})
+            self.env['res.partner'].browse(partner_id).with_company(company_id).write({'property_stock_customer': transit_loc, 'property_stock_supplier': transit_loc})
         else:
             transit_loc = self.env.company.internal_transit_location_id.id
             self.env['res.partner'].browse(partner_id).write({'property_stock_customer': transit_loc, 'property_stock_supplier': transit_loc})
@@ -513,7 +516,7 @@ class Warehouse(models.Model):
         def_values = self.default_get(['reception_steps', 'delivery_steps'])
         reception_steps = vals.get('reception_steps', def_values['reception_steps'])
         delivery_steps = vals.get('delivery_steps', def_values['delivery_steps'])
-        code = vals.get('code') or code
+        code = vals.get('code') or code or ''
         code = code.replace(' ', '').upper()
         company_id = vals.get('company_id', self.default_get(['company_id'])['company_id'])
         sub_locations = {
@@ -586,6 +589,7 @@ class Warehouse(models.Model):
             transit_location = internal_transit_location if supplier_wh.company_id == self.company_id else external_transit_location
             if not transit_location:
                 continue
+            transit_location.active = True
             output_location = supplier_wh.lot_stock_id if supplier_wh.delivery_steps == 'ship_only' else supplier_wh.wh_output_stock_loc_id
             # Create extra MTO rule (only for 'ship only' because in the other cases MTO rules already exists)
             if supplier_wh.delivery_steps == 'ship_only':
@@ -1095,4 +1099,3 @@ class Orderpoint(models.Model):
             'orderpoint_id': self,
             'group_id': group or self.group_id,
         }
-

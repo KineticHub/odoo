@@ -182,4 +182,3 @@ class StockScrap(models.Model):
                 'context': ctx,
                 'target': 'new'
             }
-

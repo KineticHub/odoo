@@ -7,7 +7,7 @@ from odoo.http import request
 
 class WebsiteLivechat(http.Controller):
 
-    @http.route('/livechat', type='http', auth="public", website=True)
+    @http.route('/livechat', type='http', auth="public", website=True, sitemap=True)
     def channel_list(self, **kw):
         # display the list of the channel
         channels = request.env['im_livechat.channel'].search([('website_published', '=', True)])
@@ -16,15 +16,14 @@ class WebsiteLivechat(http.Controller):
         }
         return request.render('website_livechat.channel_list_page', values)
 
-
-    @http.route('/livechat/channel/<model("im_livechat.channel"):channel>', type='http', auth='public', website=True)
+    @http.route('/livechat/channel/<model("im_livechat.channel"):channel>', type='http', auth='public', website=True, sitemap=True)
     def channel_rating(self, channel, **kw):
         # get the last 100 ratings and the repartition per grade
         domain = [
             ('res_model', '=', 'mail.channel'), ('res_id', 'in', channel.sudo().channel_ids.ids),
             ('consumed', '=', True), ('rating', '>=', 1),
         ]
-        ratings = request.env['rating.rating'].search(domain, order='create_date desc', limit=100)
+        ratings = request.env['rating.rating'].sudo().search(domain, order='create_date desc', limit=100)
         repartition = channel.sudo().channel_ids.rating_get_grades(domain=domain)
 
         # compute percentage

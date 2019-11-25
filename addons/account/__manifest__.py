@@ -61,14 +61,12 @@ You could use this simplified accounting in case you work with an (external) acc
         'views/digest_views.xml',
         'wizard/account_invoice_send_views.xml',
         'views/account_tax_report_views.xml',
-        'views/report_statement.xml',
-        'report/account_hash_integrity_templates.xml'
+        'report/account_hash_integrity_templates.xml',
     ],
     'demo': [
         'demo/account_demo.xml',
     ],
     'qweb': [
-        "static/src/xml/account_reconciliation.xml",
         "static/src/xml/account_payment.xml",
         "static/src/xml/account_report_backend.xml",
         "static/src/xml/bills_tree_upload_views.xml",

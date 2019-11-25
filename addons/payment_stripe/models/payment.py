@@ -69,7 +69,6 @@ class PaymentAcquirerStripe(models.Model):
                           "Request data:\n%s\n"
                           "Response body:\n%s",
                           url, pprint.pformat(data), resp.text)
-            raise
         return resp.json()
 
     def _create_stripe_session(self, kwargs):
@@ -275,7 +274,7 @@ class PaymentTransactionStripe(models.Model):
             return True
         else:
             error = tree.get('failure_message')
-            _logger.warn(error)
+            _logger.warning(error)
             vals.update({'state_message': error})
             self.write(vals)
             self._set_transaction_cancel()

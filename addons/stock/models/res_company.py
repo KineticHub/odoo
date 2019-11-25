@@ -31,15 +31,16 @@ class Company(models.Model):
         parent_location = self.env.ref('stock.stock_location_locations', raise_if_not_found=False)
         for company in self:
             location = self.env['stock.location'].create({
-                'name': _('%s: Transit Location') % company.name,
+                'name': _('Inter-warehouse transit'),
                 'usage': 'transit',
                 'location_id': parent_location and parent_location.id or False,
                 'company_id': company.id,
+                'active': False
             })
 
             company.write({'internal_transit_location_id': location.id})
 
-            company.partner_id.with_context(force_company=company.id).write({
+            company.partner_id.with_company(company).write({
                 'property_stock_customer': location.id,
                 'property_stock_supplier': location.id,
             })
@@ -49,7 +50,7 @@ class Company(models.Model):
         inventory_loss_product_template_field = self.env['ir.model.fields'].search([('model','=','product.template'),('name','=','property_stock_inventory')])
         for company in self:
             inventory_loss_location = self.env['stock.location'].create({
-                'name': '%s: Inventory adjustment' % company.name,
+                'name': 'Inventory adjustment',
                 'usage': 'inventory',
                 'location_id': parent_location.id,
                 'company_id': company.id,
@@ -66,7 +67,7 @@ class Company(models.Model):
         production_product_template_field = self.env['ir.model.fields'].search([('model','=','product.template'),('name','=','property_stock_production')])
         for company in self:
             production_location = self.env['stock.location'].create({
-                'name': '%s: Production' % company.name,
+                'name': 'Production',
                 'usage': 'production',
                 'location_id': parent_location.id,
                 'company_id': company.id,
@@ -79,10 +80,10 @@ class Company(models.Model):
             })
 
     def _create_scrap_location(self):
+        parent_location = self.env.ref('stock.stock_location_locations_virtual', raise_if_not_found=False)
         for company in self:
-            parent_location = self.env.ref('stock.stock_location_locations_virtual', raise_if_not_found=False)
             scrap_location = self.env['stock.location'].create({
-                'name': '%s: Scrap' % company.name,
+                'name': 'Scrap',
                 'usage': 'inventory',
                 'location_id': parent_location.id,
                 'company_id': company.id,
@@ -185,4 +186,3 @@ class Company(models.Model):
         company.sudo()._create_per_company_rules()
         self.env['stock.warehouse'].sudo().create({'name': company.name, 'code': company.name[:5], 'company_id': company.id, 'partner_id': company.partner_id.id})
         return company
-

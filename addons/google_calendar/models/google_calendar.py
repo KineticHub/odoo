@@ -402,7 +402,7 @@ class GoogleCalendar(models.AbstractModel):
         if event_new.allday:
             _originalStartTime['date'] = event_new.recurrent_id_date.strftime("%Y-%m-%d")
         else:
-            _originalStartTime['datetime'] = event_new.recurrent_id_date.strftime("%Y-%m-%dT%H:%M:%S.%fz")
+            _originalStartTime['dateTime'] = event_new.recurrent_id_date.strftime("%Y-%m-%dT%H:%M:%S.%fz")
 
         data.update(
             recurringEventId=event_ori_google_id,
@@ -861,7 +861,7 @@ class GoogleCalendar(models.AbstractModel):
 
                                     CalendarEvent.browse(excluded_event_id).with_context(google_internal_event_id=event.GG.event.get('id'), oe_update_date=False).unlink(can_be_deleted=False)
                                 else:
-                                    _logger.warn("Could not create the correct exclusion for event")
+                                    _logger.warning("Could not create the correct exclusion for event")
 
                 elif isinstance(actToDo, Delete):
                     if actSrc == 'GG':

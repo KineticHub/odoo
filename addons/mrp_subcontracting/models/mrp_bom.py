@@ -17,4 +17,3 @@ class MrpBom(models.Model):
             return self.search(domain, order='sequence, product_id', limit=1)
         else:
             return self.env['mrp.bom']
-

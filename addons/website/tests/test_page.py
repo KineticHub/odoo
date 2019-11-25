@@ -167,6 +167,11 @@ class TestPage(common.TransactionCase):
         View = self.env['ir.ui.view']
         Website = self.env['website']
 
+        website2 = self.env['website'].create({
+            'name': 'My Second Website',
+            'domain': '',
+        })
+
         # currently the view unlink of website.page can't handle views with inherited views
         self.extension_view.unlink()
 
@@ -184,6 +189,7 @@ class TestPage(common.TransactionCase):
         self.assertTrue(website_id not in View.search([('name', 'in', ('Base', 'Extension'))]).mapped('website_id').ids, "Same for views")
 
 
+@tagged('-at_install', 'post_install')
 class Crawler(HttpCase):
     def test_unpublished_page(self):
         Page = self.env['website.page']

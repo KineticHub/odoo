@@ -6,12 +6,13 @@
 from odoo.tests import Form, tagged
 from odoo.addons.stock_account.tests.test_stockvaluationlayer import TestStockValuationCommon
 from odoo.addons.stock_account.tests.test_stockvaluation import _create_accounting_data
+from odoo.addons.stock_account.tests.common import StockAccountTestCommon
 
 
-class TestStockValuationLC(TestStockValuationCommon):
+class TestStockValuationLCCommon(TestStockValuationCommon, StockAccountTestCommon):
     @classmethod
     def setUpClass(cls):
-        super(TestStockValuationLC, cls).setUpClass()
+        super(TestStockValuationLCCommon, cls).setUpClass()
         cls.productlc1 = cls.env['product.product'].create({
             'name': 'product1',
             'type': 'service',
@@ -76,7 +77,7 @@ class TestStockValuationLC(TestStockValuationCommon):
         return lc
 
 
-class TestStockValuationLCFIFO(TestStockValuationLC):
+class TestStockValuationLCFIFO(TestStockValuationLCCommon):
     def setUp(self):
         super(TestStockValuationLCFIFO, self).setUp()
         self.product1.product_tmpl_id.categ_id.property_cost_method = 'fifo'
@@ -179,7 +180,7 @@ class TestStockValuationLCFIFO(TestStockValuationLC):
         self.assertEqual(self.product1.quantity_svl, 0)
 
 
-class TestStockValuationLCAVCO(TestStockValuationLC):
+class TestStockValuationLCAVCO(TestStockValuationLCCommon):
     def setUp(self):
         super(TestStockValuationLCAVCO, self).setUp()
         self.product1.product_tmpl_id.categ_id.property_cost_method = 'average'
@@ -221,7 +222,7 @@ class TestStockValuationLCAVCO(TestStockValuationLC):
         self.assertEqual(self.product1.quantity_svl, 19)
 
 
-class TestStockValuationLCFIFOVB(TestStockValuationLC):
+class TestStockValuationLCFIFOVB(TestStockValuationLCCommon):
     @classmethod
     def setUpClass(cls):
         super(TestStockValuationLCFIFOVB, cls).setUpClass()
@@ -254,7 +255,7 @@ class TestStockValuationLCFIFOVB(TestStockValuationLC):
         # Process the receipt
         receipt = rfq.picking_ids
         wiz = receipt.button_validate()
-        wiz = self.env['stock.immediate.transfer'].browse(wiz['res_id']).process()
+        wiz = self.env['stock.immediate.transfer'].browse(wiz['res_id']).with_context(wiz['context']).process()
         self.assertEqual(rfq.order_line.qty_received, 10)
 
         input_aml = self._get_stock_input_move_lines()[-1]
@@ -342,7 +343,7 @@ class TestStockValuationLCFIFOVB(TestStockValuationLC):
         # Process the receipt
         receipt = rfq.picking_ids
         wiz = receipt.button_validate()
-        wiz = self.env['stock.immediate.transfer'].browse(wiz['res_id']).process()
+        wiz = self.env['stock.immediate.transfer'].browse(wiz['res_id']).with_context(wiz['context']).process()
         self.assertEqual(rfq.order_line.qty_received, 10)
 
         input_aml = self._get_stock_input_move_lines()[-1]

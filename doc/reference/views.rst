@@ -1101,50 +1101,6 @@ take the following attributes:
 
 will display the users avatars next to their names when grouped by user_id
 
-.. _reference/views/diagram:
-
-Diagram
-=======
-
-The diagram view can be used to display directed graphs of records. The root
-element is ``<diagram>`` and takes no attributes.
-
-Possible children of the diagram view are:
-
-``node`` (required, 1)
-    Defines the nodes of the graph. Its attributes are:
-
-    ``object``
-      the node's Odoo model
-    ``shape``
-      conditional shape mapping similar to colors and fonts in :ref:`the list
-      view <reference/views/list>`. The only valid shape is ``rectangle`` (the
-      default shape is an ellipsis)
-    ``bgcolor``
-      same as ``shape``, but conditionally maps a background color for
-      nodes. The default background color is white, the only valid alternative
-      is ``grey``.
-``arrow`` (required, 1)
-    Defines the directed edges of the graph. Its attributes are:
-
-    ``object`` (required)
-      the edge's Odoo model
-    ``source`` (required)
-      :class:`~odoo.fields.Many2one` field of the edge's model pointing to
-      the edge's source node record
-    ``destination`` (required)
-      :class:`~odoo.fields.Many2one` field of the edge's model pointing to
-      the edge's destination node record
-    ``label``
-      Python list of attributes (as quoted strings). The corresponding
-      attributes's values will be concatenated and displayed as the edge's
-      label
-
-``label``
-    Explanatory note for the diagram, the ``string`` attribute defines the
-    note's content. Each ``label`` is output as a paragraph in the diagram
-    header, easily visible but without any special emphasis.
-
 .. _reference/views/dashboard:
 
 Dashboard
@@ -1780,8 +1736,12 @@ The view's root element is ``<map>`` multiple attributes are allowed
     If a field is provided the view will override the model's default order. The field must be apart of the model on which the view is applied not from res.partner
 ``routing``
     if ``true`` the routes between the records will be shown. The view still needs a valid MapBox token and at least two located records. (i.e the records has a res.partner many2one and the partner has a address or valid coordinates)
+``hide_name``
+    if ``true`` hide a name from the marker's popup (default: false)
+``hide_address``
+    if ``true`` hide a address from the marker's popup (default: false)
 
-The only element allowed within the ``<map>`` element is the ``<marker-popup>``. This element is able to contain multiple ``<field>`` elements. Each of these elements will be interpreted as a line in the marker's popup. The field's attributes are the following:
+The ``<map>`` element can contain multiple ``<field>`` elements. Each ``<field>`` element will be interpreted as a line in the marker's popup. The field's attributes are the following:
 
 ``name``
     The field to display.
@@ -1793,10 +1753,8 @@ No attribute or element is mandatory but as stated above if no res.partner many2
 For example here is a map:
     .. code-block:: xml
 
-        <map res_partner="partner_id" default_order="date_begin" routing="true">
-            <marker-popup>
-                <field name="name" string="Task: "/>
-            </marker-popup>
+        <map res_partner="partner_id" default_order="date_begin" routing="true" hide_name="true">
+            <field name="partner_id" string="Customer Name"/>
         </map>
 
 .. _reference/views/qweb:

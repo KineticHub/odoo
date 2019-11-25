@@ -656,7 +656,7 @@ class IrModelFields(models.Model):
                 ]))
             else:
                 # uninstall mode
-                _logger.warn("The following fields were force-deleted to prevent a registry crash "
+                _logger.warning("The following fields were force-deleted to prevent a registry crash "
                         + ", ".join(str(f) for f in fields)
                         + " the following view might be broken %s" % view.name)
         finally:
@@ -1201,7 +1201,7 @@ class IrModelConstraint(models.Model):
     definition = fields.Char(help="PostgreSQL constraint definition")
     message = fields.Char(help="Error message returned when the constraint is violated.", translate=True)
     model = fields.Many2one('ir.model', required=True, ondelete="cascade", index=True)
-    module = fields.Many2one('ir.module.module', required=True, index=True)
+    module = fields.Many2one('ir.module.module', required=True, index=True, ondelete='cascade')
     type = fields.Char(string='Constraint Type', required=True, size=1, index=True,
                        help="Type of the constraint: `f` for a foreign key, "
                             "`u` for other constraints.")
@@ -1337,8 +1337,8 @@ class IrModelRelation(models.Model):
 
     name = fields.Char(string='Relation Name', required=True, index=True,
                        help="PostgreSQL table name implementing a many2many relation.")
-    model = fields.Many2one('ir.model', required=True, index=True)
-    module = fields.Many2one('ir.module.module', required=True, index=True)
+    model = fields.Many2one('ir.model', required=True, index=True, ondelete='cascade')
+    module = fields.Many2one('ir.module.module', required=True, index=True, ondelete='cascade')
     write_date = fields.Datetime()
     create_date = fields.Datetime()
 
@@ -1583,11 +1583,16 @@ class IrModelData(models.Model):
     complete_name = fields.Char(compute='_compute_complete_name', string='Complete ID')
     model = fields.Char(string='Model Name', required=True)
     module = fields.Char(default='', required=True)
-    res_id = fields.Integer(string='Record ID', help="ID of the target record in the database")
+    res_id = fields.Many2oneReference(string='Record ID', help="ID of the target record in the database", model_field='model')
     noupdate = fields.Boolean(string='Non Updatable', default=False)
     date_update = fields.Datetime(string='Update Date', default=fields.Datetime.now)
     date_init = fields.Datetime(string='Init Date', default=fields.Datetime.now)
     reference = fields.Char(string='Reference', compute='_compute_reference', readonly=True, store=False)
+
+    _sql_constraints = [
+        ('name_nospaces', "CHECK(name NOT LIKE '% %')",
+         "External IDs cannot contain spaces"),
+    ]
 
     @api.depends('module', 'name')
     def _compute_complete_name(self):

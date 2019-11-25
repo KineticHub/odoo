@@ -173,7 +173,7 @@ class AccountMove(models.Model):
         help='If this checkbox is ticked, this entry will be automatically posted at its date.')
 
     # ==== Reverse feature fields ====
-    reversed_entry_id = fields.Many2one('account.move', string="Reversal of", readonly=True, copy=False)
+    reversed_entry_id = fields.Many2one('account.move', string="Reverse entry", readonly=True, copy=False)
 
     # =========================================================
     # Invoice related fields
@@ -325,7 +325,7 @@ class AccountMove(models.Model):
 
         # Find the new fiscal position.
         delivery_partner_id = self._get_invoice_delivery_partner_id()
-        new_fiscal_position_id = self.env['account.fiscal.position'].with_context(force_company=self.company_id.id).get_fiscal_position(
+        new_fiscal_position_id = self.env['account.fiscal.position'].with_company(self.company_id).get_fiscal_position(
             self.partner_id.id, delivery_id=delivery_partner_id)
         self.fiscal_position_id = self.env['account.fiscal.position'].browse(new_fiscal_position_id)
         self._recompute_dynamic_lines()
@@ -501,16 +501,23 @@ class AccountMove(models.Model):
         taxes_map = {}
 
         # ==== Add tax lines ====
+        to_remove = self.env['account.move.line']
         for line in self.line_ids.filtered('tax_repartition_line_id'):
             grouping_dict = self._get_tax_grouping_key_from_tax_line(line)
             grouping_key = _serialize_tax_grouping_key(grouping_dict)
-            taxes_map[grouping_key] = {
-                'tax_line': line,
-                'balance': 0.0,
-                'amount_currency': 0.0,
-                'tax_base_amount': 0.0,
-                'grouping_dict': False,
-            }
+            if grouping_key in taxes_map:
+                # A line with the same key does already exist, we only need one
+                # to modify it; we have to drop this one.
+                to_remove += line
+            else:
+                taxes_map[grouping_key] = {
+                    'tax_line': line,
+                    'balance': 0.0,
+                    'amount_currency': 0.0,
+                    'tax_base_amount': 0.0,
+                    'grouping_dict': False,
+                }
+        self.line_ids -= to_remove
 
         # ==== Mount base lines ====
         for line in self.line_ids.filtered(lambda line: not line.exclude_from_invoice_tab):
@@ -667,9 +674,13 @@ class AccountMove(models.Model):
                 })
 
             elif self.invoice_cash_rounding_id.strategy == 'add_invoice_line':
+                if diff_balance > 0.0 and self.invoice_cash_rounding_id.loss_account_id:
+                    account_id = self.invoice_cash_rounding_id.loss_account_id.id
+                else:
+                    account_id = self.invoice_cash_rounding_id.profit_account_id.id
                 rounding_line_vals.update({
                     'name': self.invoice_cash_rounding_id.name,
-                    'account_id': self.invoice_cash_rounding_id.account_id.id,
+                    'account_id': account_id,
                 })
 
             # Create or update the cash rounding line.
@@ -678,6 +689,7 @@ class AccountMove(models.Model):
                     'amount_currency': rounding_line_vals['amount_currency'],
                     'debit': rounding_line_vals['debit'],
                     'credit': rounding_line_vals['credit'],
+                    'account_id': rounding_line_vals['account_id'],
                 })
             else:
                 create_method = in_draft_mode and self.env['account.move.line'].new or self.env['account.move.line'].create
@@ -1394,11 +1406,9 @@ class AccountMove(models.Model):
             raise UserError(_("Cannot create unbalanced journal entry. Ids: %s\nDifferences debit - credit: %s") % (ids, sums))
 
     def _check_fiscalyear_lock_date(self):
-        for move in self.filtered(lambda move: move.state == 'posted'):
-            lock_date = max(move.company_id.period_lock_date or date.min, move.company_id.fiscalyear_lock_date or date.min)
-            if self.user_has_groups('account.group_account_manager'):
-                lock_date = move.company_id.fiscalyear_lock_date
-            if move.date <= (lock_date or date.min):
+        for move in self:
+            lock_date = move.company_id._get_user_fiscal_lock_date()
+            if move.date <= lock_date:
                 if self.user_has_groups('account.group_account_manager'):
                     message = _("You cannot add/modify entries prior to and inclusive of the lock date %s.") % format_date(self.env, lock_date)
                 else:
@@ -1514,6 +1524,13 @@ class AccountMove(models.Model):
             values.pop('invoice_line_ids', None)
             invoice.write(values)
         return True
+
+    @api.returns('self', lambda value: value.id)
+    def copy(self, default=None):
+        default = dict(default or {})
+        if (fields.Date.to_date(default.get('date')) or self.date) <= self.company_id._get_user_fiscal_lock_date():
+            default['date'] = self.company_id._get_user_fiscal_lock_date() + timedelta(days=1)
+        return super(AccountMove, self).copy(default)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -2062,7 +2079,7 @@ class AccountMove(models.Model):
             # When the accounting date is prior to the tax lock date, move it automatically to the next available date.
             # /!\ 'check_move_validity' must be there since the dynamic lines will be recomputed outside the 'onchange'
             # environment.
-            if move.company_id.tax_lock_date and move.date <= move.company_id.tax_lock_date:
+            if (move.company_id.tax_lock_date and move.date <= move.company_id.tax_lock_date) and (move.line_ids.tax_ids or move.line_ids.tag_ids):
                 move.date = move.company_id.tax_lock_date + timedelta(days=1)
                 move.with_context(check_move_validity=False)._onchange_currency()
 
@@ -2260,21 +2277,6 @@ class AccountMove(models.Model):
     def action_invoice_paid(self):
         ''' Hook to be overrided called when the invoice moves to the paid state. '''
         pass
-
-    def action_open_matching_suspense_moves(self):
-        self.ensure_one()
-        domain = self._get_domain_matching_suspense_moves()
-        ids = self.env['account.move.line'].search(domain).mapped('statement_line_id').ids
-        action_context = {'show_mode_selector': False, 'company_ids': self.mapped('company_id').ids}
-        action_context.update({'suspense_moves_mode': True})
-        action_context.update({'statement_line_ids': ids})
-        action_context.update({'partner_id': self.partner_id.id})
-        action_context.update({'partner_name': self.partner_id.name})
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'bank_statement_reconciliation_view',
-            'context': action_context,
-        }
 
     def action_invoice_register_payment(self):
         return self.env['account.payment']\
@@ -3002,15 +3004,8 @@ class AccountMoveLine(models.Model):
     # CONSTRAINT METHODS
     # -------------------------------------------------------------------------
 
-    @api.constrains('currency_id', 'account_id')
-    def _check_account_currency(self):
-        for line in self:
-            account_currency = line.account_id.currency_id
-            if account_currency and account_currency != line.company_currency_id and account_currency != line.currency_id:
-                raise UserError(_('The account selected on your journal entry forces to provide a secondary currency. You should remove the secondary currency on the account.'))
-
-    @api.constrains('account_id')
-    def _check_constrains_account_id(self):
+    @api.constrains('account_id', 'journal_id')
+    def _check_constrains_account_id_journal_id(self):
         for line in self:
             account = line.account_id
             journal = line.journal_id
@@ -3018,10 +3013,17 @@ class AccountMoveLine(models.Model):
             if account.deprecated:
                 raise UserError(_('The account %s (%s) is deprecated.') % (account.name, account.code))
 
+            account_currency = account.currency_id
+            if account_currency and account_currency != line.company_currency_id and account_currency != line.currency_id:
+                raise UserError(_('The account selected on your journal entry forces to provide a secondary currency. You should remove the secondary currency on the account.'))
+
+            control_journal_failed = account.allowed_journal_ids and journal not in account.allowed_journal_ids
             control_type_failed = journal.type_control_ids and account.user_type_id not in journal.type_control_ids
             control_account_failed = journal.account_control_ids and account not in journal.account_control_ids
+            if control_journal_failed:
+                raise UserError(_('You cannot use this account (%s) in this journal, check the field \'Allowed Journals\' on the related account.') % account.display_name)
             if control_type_failed or control_account_failed:
-                raise UserError(_('You cannot use this general account in this journal, check the tab \'Entry Controls\' on the related journal.'))
+                raise UserError(_('You cannot use this account (%s) in this journal, check the tab \'Control-Access\' on the related journal.') % account.display_name)
 
     @api.constrains('account_id', 'tax_ids', 'tax_line_id', 'reconciled')
     def _check_off_balance(self):
@@ -3733,18 +3735,19 @@ class AccountMoveLine(models.Model):
         """ Create analytic items upon validation of an account.move.line having an analytic account or an analytic distribution.
         """
         lines_to_create_analytic_entries = self.env['account.move.line']
+        analytic_line_vals = []
         for obj_line in self:
             for tag in obj_line.analytic_tag_ids.filtered('active_analytic_distribution'):
                 for distribution in tag.analytic_distribution_ids:
-                    vals_line = obj_line._prepare_analytic_distribution_line(distribution)
-                    self.env['account.analytic.line'].create(vals_line)
+                    analytic_line_vals.append(obj_line._prepare_analytic_distribution_line(distribution))
             if obj_line.analytic_account_id:
                 lines_to_create_analytic_entries |= obj_line
 
         # create analytic entries in batch
         if lines_to_create_analytic_entries:
-            values_list = lines_to_create_analytic_entries._prepare_analytic_line()
-            self.env['account.analytic.line'].create(values_list)
+            analytic_line_vals += lines_to_create_analytic_entries._prepare_analytic_line()
+
+        self.env['account.analytic.line'].create(analytic_line_vals)
 
     def _prepare_analytic_line(self):
         """ Prepare the values used to create() an account.analytic.line upon validation of an account.move.line having
@@ -3829,9 +3832,10 @@ class AccountMoveLine(models.Model):
 
         if context.get('company_id'):
             domain += [('company_id', '=', context['company_id'])]
-
-        if 'company_ids' in context:
-            domain += [('company_id', 'in', context['company_ids'])]
+        elif context.get('allowed_company_ids'):
+            domain += [('company_id', 'in', self.env.companies.ids)]
+        else:
+            domain += [('company_id', '=', self.env.company.id)]
 
         if context.get('reconcile_date'):
             domain += ['|', ('reconciled', '=', False), '|', ('matched_debit_ids.max_date', '>', context['reconcile_date']), ('matched_credit_ids.max_date', '>', context['reconcile_date'])]
@@ -4204,6 +4208,6 @@ class AccountFullReconcile(models.Model):
         # The move date should be the maximum date between payment and invoice
         # (in case of payment in advance). However, we should make sure the
         # move date is not recorded after the end of year closing.
-        if move_date > (company.fiscalyear_lock_date or date.min):
+        if move_date > company._get_user_fiscal_lock_date():
             res['date'] = move_date
         return res

@@ -50,7 +50,7 @@ class account_journal(models.Model):
             '''
             self.env.cr.execute(sql_query, (journal.id,))
             for activity in self.env.cr.dictfetchall():
-                activities.append({
+                act = {
                     'id': activity.get('id'),
                     'res_id': activity.get('res_id'),
                     'res_model': activity.get('res_model'),
@@ -58,7 +58,13 @@ class account_journal(models.Model):
                     'name': (activity.get('summary') or activity.get('act_type_name')),
                     'activity_category': activity.get('activity_category'),
                     'date': odoo_format_date(self.env, activity.get('date_deadline'))
-                })
+                }
+                if activity.get('activity_category') == 'tax_report' and activity.get('res_model') == 'account.move':
+                    if self.env['account.move'].browse(activity.get('res_id')).company_id.account_tax_periodicity == 'monthly':
+                        act['name'] += ' (' + format_date(activity.get('date'), 'MMM', locale=get_lang(self.env).code) + ')'
+                    else:
+                        act['name'] += ' (' + format_date(activity.get('date'), 'QQQ', locale=get_lang(self.env).code) + ')'
+                activities.append(act)
             journal.json_activity_data = json.dumps({'activities': activities})
 
     kanban_dashboard = fields.Text(compute='_kanban_dashboard')
@@ -419,40 +425,6 @@ class account_journal(models.Model):
                 'domain': [('id', 'in', open_statements.ids)],
             })
         return action
-
-    def action_open_reconcile(self):
-        if self.type in ['bank', 'cash']:
-            # Open reconciliation view for bank statements belonging to this journal
-            bank_stmt = self.env['account.bank.statement'].search([('journal_id', 'in', self.ids)]).mapped('line_ids')
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'bank_statement_reconciliation_view',
-                'context': {'statement_line_ids': bank_stmt.ids, 'company_ids': self.mapped('company_id').ids},
-            }
-        else:
-            # Open reconciliation view for customers/suppliers
-            action_context = {'show_mode_selector': False, 'company_ids': self.mapped('company_id').ids}
-            if self.type == 'sale':
-                action_context.update({'mode': 'customers'})
-            elif self.type == 'purchase':
-                action_context.update({'mode': 'suppliers'})
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'manual_reconciliation_view',
-                'context': action_context,
-            }
-
-    def action_open_to_check(self):
-        self.ensure_one()
-        ids = self.to_check_ids().ids
-        action_context = {'show_mode_selector': False, 'company_ids': self.mapped('company_id').ids}
-        action_context.update({'suspense_moves_mode': True})
-        action_context.update({'statement_line_ids': ids})
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'bank_statement_reconciliation_view',
-            'context': action_context,
-        }
 
     def to_check_ids(self):
         self.ensure_one()

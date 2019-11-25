@@ -199,7 +199,7 @@ exports.PosModel = Backbone.Model.extend({
     },{
         model:  'res.partner',
         label: 'load_partners',
-        fields: ['name','street','city','state_id','country_id','vat',
+        fields: ['name','street','city','state_id','country_id','vat','lang',
                  'phone','zip','mobile','email','barcode','write_date',
                  'property_account_position_id','property_product_pricelist'],
         loaded: function(self,partners){
@@ -223,6 +223,12 @@ exports.PosModel = Backbone.Model.extend({
                     self.company.country = countries[i];
                 }
             }
+        },
+    },{
+        model:  'res.lang',
+        fields: ['name', 'code'],
+        loaded: function (self, langs){
+            self.langs = langs;
         },
     },{
         model:  'account.tax',
@@ -294,7 +300,7 @@ exports.PosModel = Backbone.Model.extend({
        },
     },{
         model:  'res.users',
-        fields: ['name','company_id', 'id', 'groups_id'],
+        fields: ['name','company_id', 'id', 'groups_id', 'lang'],
         domain: function(self){ return [['company_ids', 'in', self.config.company_id[0]],'|', ['groups_id','=', self.config.group_pos_manager_id[0]],['groups_id','=', self.config.group_pos_user_id[0]]]; },
         loaded: function(self,users){
             users.forEach(function(user) {
@@ -1474,7 +1480,7 @@ exports.Orderline = Backbone.Model.extend({
         return orderline;
     },
     set_product_lot: function(product){
-        this.has_product_lot = product.tracking !== 'none' && this.pos.config.use_existing_lots;
+        this.has_product_lot = product.tracking !== 'none';
         this.pack_lot_lines  = this.has_product_lot && new PacklotlineCollection(null, {'order_line': this});
     },
     // sets a discount [0,100]%
@@ -2184,6 +2190,14 @@ exports.Paymentline = Backbone.Model.extend({
     },
 
     /**
+     * Check if paymentline is done.
+     * Paymentline is done if there is no payment status or the payment status is done.
+     */
+    is_done: function() {
+        return this.get_payment_status() ? this.get_payment_status() === 'done' : true;
+    },
+
+    /**
      * Set additional info to be printed on the receipts. value should
      * be compatible with both the QWeb and ESC/POS receipts.
      *
@@ -2439,7 +2453,7 @@ exports.Order = Backbone.Model.extend({
             tax_details: this.get_tax_details(),
             change: this.get_change(),
             name : this.get_name(),
-            client: client ? client.name : null ,
+            client: client ? client : null ,
             invoice_id: null,   //TODO
             cashier: cashier ? cashier.name : null,
             precision: {
@@ -2854,11 +2868,7 @@ exports.Order = Backbone.Model.extend({
     },
     get_total_paid: function() {
         return round_pr(this.paymentlines.reduce((function(sum, paymentLine) {
-            if (paymentLine.get_payment_status()) {
-                if (paymentLine.get_payment_status() == 'done') {
-                    sum += paymentLine.get_amount();
-                }
-            } else {
+            if (paymentLine.is_done()) {
                 sum += paymentLine.get_amount();
             }
             return sum;

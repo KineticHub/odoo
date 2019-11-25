@@ -187,7 +187,7 @@ class StockMove(models.Model):
         for move in self:
             move.display_assign_serial = (
                 move.has_tracking == 'serial' and
-                move.state in ('partially_available', 'assigned') and
+                move.state in ('partially_available', 'assigned', 'confirmed') and
                 move.picking_type_id.use_create_lots and
                 not move.picking_type_id.use_existing_lots and
                 not move.picking_type_id.show_reserved
@@ -399,8 +399,9 @@ class StockMove(models.Model):
     @api.model
     def default_get(self, fields_list):
         # We override the default_get to make stock moves created after the picking was confirmed
-        # directly as available. This allows to create extra move lines in
-        # the fp view.
+        # directly as available in immediate transfer mode. This allows to create extra move lines
+        # in the fp view. In planned transfer, the stock move are marked as `additional` and will be
+        # auto-confirmed.
         defaults = super(StockMove, self).default_get(fields_list)
         if self.env.context.get('default_picking_id'):
             picking_id = self.env['stock.picking'].browse(self.env.context['default_picking_id'])
@@ -408,10 +409,11 @@ class StockMove(models.Model):
                 defaults['state'] = 'done'
                 defaults['product_uom_qty'] = 0.0
                 defaults['additional'] = True
-            elif picking_id.state not in ['draft', 'confirmed']:
-                defaults['state'] = 'assigned'
+            elif picking_id.state not in ['cancel', 'draft', 'done']:
+                if picking_id.immediate_transfer:
+                    defaults['state'] = 'assigned'
                 defaults['product_uom_qty'] = 0.0
-                defaults['additional'] = True
+                defaults['additional'] = True  # to trigger `_autoconfirm_picking`
         return defaults
 
     def name_get(self):
@@ -665,7 +667,7 @@ class StockMove(models.Model):
             domain = [('location_src_id', '=', move.location_dest_id.id), ('action', 'in', ('push', 'pull_push'))]
             # first priority goes to the preferred routes defined on the move itself (e.g. coming from a SO line)
             warehouse_id = move.warehouse_id or move.picking_id.picking_type_id.warehouse_id
-            if not self.env.context.get('force_company', False) and move.location_dest_id.company_id == self.env.user.company_id:
+            if move.location_dest_id.company_id == self.env.company:
                 rules = self.env['procurement.group']._search_rule(move.route_ids, move.product_id, warehouse_id, domain)
             else:
                 rules = self.sudo().env['procurement.group']._search_rule(move.route_ids, move.product_id, warehouse_id, domain)
@@ -1033,10 +1035,6 @@ class StockMove(models.Model):
             )
         return vals
 
-    def _update_next_serial_count(self):
-        self.next_serial = None
-        self.next_serial_count = len(self.move_line_ids)
-
     def _update_reserved_quantity(self, need, available_quantity, location_id, lot_id=None, package_id=None, owner_id=None, strict=True):
         """ Create or update move lines.
         """
@@ -1221,7 +1219,7 @@ class StockMove(models.Model):
                             break
                         partially_available_moves |= move
             if move.product_id.tracking == 'serial':
-                move._update_next_serial_count()
+                move.next_serial_count = move.product_uom_qty
 
         self.env['stock.move.line'].create(move_line_vals_list)
         partially_available_moves.write({'state': 'partially_available'})
@@ -1230,7 +1228,7 @@ class StockMove(models.Model):
 
     def _action_cancel(self):
         if any(move.state == 'done' and not move.scrapped for move in self):
-            raise UserError(_('You cannot cancel a stock move that has been set to \'Done\'.'))
+            raise UserError(_('You cannot cancel a stock move that has been set to \'Done\'. Create a return in order to reverse the moves which took place.'))
         moves_to_cancel = self.filtered(lambda m: m.state != 'cancel')
         # self cannot contain moves that are either cancelled or done, therefore we can safely
         # unlink all associated move_line_ids
@@ -1516,4 +1514,3 @@ class StockMove(models.Model):
                 move.procure_method = rules.procure_method
             else:
                 move.procure_method = 'make_to_stock'
-

@@ -538,7 +538,7 @@ class MrpProduction(models.Model):
             'date': self.date_planned_start,
             'date_expected': self.date_planned_finished,
             'picking_type_id': self.picking_type_id.id,
-            'location_id': self.product_id.with_context(force_company=self.company_id.id).property_stock_production.id,
+            'location_id': self.product_id.with_company(self.company_id).property_stock_production.id,
             'location_dest_id': self.location_dest_id.id,
             'company_id': self.company_id.id,
             'production_id': self.id,
@@ -574,31 +574,35 @@ class MrpProduction(models.Model):
                 if bom_line.child_bom_id and bom_line.child_bom_id.type == 'phantom' or\
                         bom_line.product_id.type not in ['product', 'consu']:
                     continue
-                moves.append(production._get_move_raw_values(bom_line, line_data))
+                operation = bom_line.operation_id.id or line_data['parent_line'] and line_data['parent_line'].operation_id.id
+                moves.append(production._get_move_raw_values(
+                    bom_line.product_id,
+                    line_data['qty'],
+                    bom_line.product_uom_id,
+                    operation,
+                    bom_line
+                ))
         return moves
 
-    def _get_move_raw_values(self, bom_line, line_data):
-        quantity = line_data['qty']
-        # alt_op needed for the case when you explode phantom bom and all the lines will be consumed in the operation given by the parent bom line
-        alt_op = line_data['parent_line'] and line_data['parent_line'].operation_id.id or False
+    def _get_move_raw_values(self, product_id, product_uom_qty, product_uom, operation_id=False, bom_line=False):
         source_location = self.location_src_id
         data = {
-            'sequence': bom_line.sequence,
+            'sequence': bom_line.sequence if bom_line else 10,
             'name': self.name,
             'reference': self.name,
             'date': self.date_planned_start,
             'date_expected': self.date_planned_start,
-            'bom_line_id': bom_line.id,
+            'bom_line_id': bom_line.id if bom_line else False,
             'picking_type_id': self.picking_type_id.id,
-            'product_id': bom_line.product_id.id,
-            'product_uom_qty': quantity,
-            'product_uom': bom_line.product_uom_id.id,
+            'product_id': product_id.id,
+            'product_uom_qty': product_uom_qty,
+            'product_uom': product_uom.id,
             'location_id': source_location.id,
-            'location_dest_id': self.product_id.with_context(force_company=self.company_id.id).property_stock_production.id,
+            'location_dest_id': self.product_id.with_company(self.company_id).property_stock_production.id,
             'raw_material_production_id': self.id,
             'company_id': self.company_id.id,
-            'operation_id': bom_line.operation_id.id or alt_op,
-            'price_unit': bom_line.product_id.standard_price,
+            'operation_id': operation_id,
+            'price_unit': product_id.standard_price,
             'procure_method': 'make_to_stock',
             'origin': self.name,
             'state': 'draft',
@@ -630,7 +634,14 @@ class MrpProduction(models.Model):
                 move[0].unlink()
                 return self.env['stock.move'], old_qty, quantity
         else:
-            move_values = self._get_move_raw_values(bom_line, line_data)
+            operation = bom_line.operation_id.id or line_data['parent_line'] and line_data['parent_line'].operation_id.id
+            move_values = self._get_move_raw_values(
+                bom_line.product_id,
+                line_data['qty'],
+                bom_line.product_uom_id,
+                operation,
+                bom_line
+            )
             move = self.env['stock.move'].create(move_values)
             return move, 0, quantity
 
@@ -876,6 +887,10 @@ class MrpProduction(models.Model):
         self.workorder_ids.filtered(lambda x: x.state not in ['done', 'cancel']).action_cancel()
         finish_moves = self.move_finished_ids.filtered(lambda x: x.state not in ('done', 'cancel'))
         raw_moves = self.move_raw_ids.filtered(lambda x: x.state not in ('done', 'cancel'))
+
+        # log an activity on Parent MO if child MO is cancelled.
+        if finish_moves:
+            self._log_downside_manufactured_quantity({finish_move: (self.product_uom_qty, 0.0) for finish_move in finish_moves}, cancel=True)
         (finish_moves | raw_moves)._action_cancel()
         picking_ids = self.picking_ids.filtered(lambda x: x.state not in ('done', 'cancel'))
         picking_ids.action_cancel()
@@ -982,7 +997,7 @@ class MrpProduction(models.Model):
         )
         return super(MrpProduction, self).get_empty_list_help(help)
 
-    def _log_downside_manufactured_quantity(self, moves_modification):
+    def _log_downside_manufactured_quantity(self, moves_modification, cancel=False):
 
         def _keys_in_sorted(move):
             """ sort by picking and the responsible for the product the
@@ -999,21 +1014,14 @@ class MrpProduction(models.Model):
         def _render_note_exception_quantity_mo(rendering_context):
             values = {
                 'production_order': self,
-                'order_exceptions': dict((key, d[key]) for d in rendering_context for key in d),
+                'order_exceptions': rendering_context,
                 'impacted_pickings': False,
-                'cancel': False
+                'cancel': cancel
             }
             return self.env.ref('mrp.exception_on_mo').render(values=values)
 
-        documents = {}
-        for move, (old_qty, new_qty) in moves_modification.items():
-            document = self.env['stock.picking']._log_activity_get_documents(
-                {move: (old_qty, new_qty)}, 'move_dest_ids', 'DOWN', _keys_in_sorted, _keys_in_groupby)
-            for key, value in document.items():
-                if documents.get(key):
-                    documents[key] += [value]
-                else:
-                    documents[key] = [value]
+        documents = self.env['stock.picking']._log_activity_get_documents(moves_modification, 'move_dest_ids', 'DOWN', _keys_in_sorted, _keys_in_groupby)
+        documents = self.env['stock.picking']._less_quantities_than_expected_add_documents(moves_modification, documents)
         self.env['stock.picking']._log_activity(_render_note_exception_quantity_mo, documents)
 
     def _log_manufacture_exception(self, documents, cancel=False):

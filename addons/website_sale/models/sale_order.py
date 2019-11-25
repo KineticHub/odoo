@@ -102,7 +102,7 @@ class SaleOrder(models.Model):
             'pricelist': order.pricelist_id.id,
             'force_company': order.company_id.id,
         })
-        product = self.env['product.product'].with_context(product_context).browse(product_id)
+        product = self.env['product.product'].with_context(product_context).with_company(order.company_id.id).browse(product_id)
         discount = 0
 
         if order.pricelist_id.discount_policy == 'without_discount':

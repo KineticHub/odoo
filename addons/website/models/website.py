@@ -95,6 +95,7 @@ class Website(models.Model):
     google_analytics_key = fields.Char('Google Analytics Key')
     google_management_client_id = fields.Char('Google Client ID')
     google_management_client_secret = fields.Char('Google Client Secret')
+    google_search_console = fields.Char(help='Google key, or Enable to access first reply')
 
     google_maps_api_key = fields.Char('Google Maps API Key')
 
@@ -183,6 +184,11 @@ class Website(models.Model):
         ])
         attachments_to_unlink.unlink()
         return super(Website, self).unlink()
+
+    def create_and_redirect_to_theme(self):
+        self._force()
+        action = self.env.ref('website.theme_install_kanban_action')
+        return action.read()[0]
 
     # ----------------------------------------------------------
     # Page Management
@@ -649,7 +655,7 @@ class Website(models.Model):
             view_id = View.get_view_id(template)
         if not view_id:
             raise NotFound
-        return View.browse(view_id)
+        return View.sudo().browse(view_id)
 
     @api.model
     def pager(self, url, total, page=1, step=30, scope=5, url_args=None):
@@ -673,14 +679,15 @@ class Website(models.Model):
                 return False
 
         # dont't list routes without argument having no default value or converter
-        spec = inspect.getargspec(endpoint.method.original_func)
-
-        # remove self and arguments having a default value
-        defaults_count = len(spec.defaults or [])
-        args = spec.args[1:(-defaults_count or None)]
+        sign = inspect.signature(endpoint.method.original_func)
+        params = list(sign.parameters.values())[1:]  # skip self
+        supported_kinds = (inspect.Parameter.POSITIONAL_ONLY,
+                           inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        has_no_default = lambda p: p.default is inspect.Parameter.empty
 
         # check that all args have a converter
-        return all((arg in rule._converters) for arg in args)
+        return all(p.name in rule._converters for p in params
+                   if p.kind in supported_kinds and has_no_default(p))
 
     def enumerate_pages(self, query_string=None, force=False):
         """ Available pages in the website/CMS. This is mostly used for links
@@ -702,7 +709,7 @@ class Website(models.Model):
         sitemap_endpoint_done = set()
 
         for rule in router.iter_rules():
-            if 'sitemap' in rule.endpoint.routing:
+            if 'sitemap' in rule.endpoint.routing and rule.endpoint.routing['sitemap'] is not True:
                 if rule.endpoint in sitemap_endpoint_done:
                     continue
                 sitemap_endpoint_done.add(rule.endpoint)
@@ -717,6 +724,10 @@ class Website(models.Model):
             if not self.rule_is_enumerable(rule):
                 continue
 
+            if 'sitemap' not in rule.endpoint.routing:
+                logger.warning('No Sitemap value provided for controller %s (%s)' %
+                               (rule.endpoint.method, ','.join(rule.endpoint.routing['routes'])))
+
             converters = rule._converters or {}
             if query_string and not converters and (query_string not in rule.build([{}], append_unknown=False)[1]):
                 continue
@@ -728,6 +739,9 @@ class Website(models.Model):
                 key=lambda x: (hasattr(x[1], 'domain') and (x[1].domain != '[]'), rule._trace.index((True, x[0]))))
 
             for (i, (name, converter)) in enumerate(convitems):
+                if 'website_id' in self.env[converter.model]._fields and (not converter.domain or converter.domain == '[]'):
+                    converter.domain = "[('website_id', 'in', (False, current_website_id))]"
+
                 newval = []
                 for val in values:
                     query = i == len(convitems) - 1 and query_string
@@ -736,6 +750,7 @@ class Website(models.Model):
                         query = sitemap_qs2dom(query, r, self.env[converter.model]._rec_name)
                         if query == FALSE_DOMAIN:
                             continue
+
                     for value_dict in converter.generate(uid=self.env.uid, dom=query, args=val):
                         newval.append(val.copy())
                         value_dict[name] = value_dict['loc']
@@ -754,7 +769,7 @@ class Website(models.Model):
                     yield page
 
         # '/' already has a http.route & is in the routing_map so it will already have an entry in the xml
-        domain = [('url', '!=', '/')]
+        domain = [('url', '!=', '/'), ('visibility', '=', False)]
         if not force:
             domain += [('website_indexed', '=', True)]
             # is_visible
@@ -791,7 +806,7 @@ class Website(models.Model):
     def image_url(self, record, field, size=None):
         """ Returns a local url that points to the image field of a given browse record. """
         sudo_record = record.sudo()
-        sha = hashlib.sha1(str(getattr(sudo_record, '__last_update')).encode('utf-8')).hexdigest()[0:7]
+        sha = hashlib.sha512(str(getattr(sudo_record, '__last_update')).encode('utf-8')).hexdigest()[:7]
         size = '' if size is None else '/%s' % size
         return '/web/image/%s/%s/%s%s?unique=%s' % (record._name, record.id, field, size, sha)
 

@@ -18,7 +18,7 @@ import logging
 from collections import defaultdict, Mapping
 from contextlib import contextmanager
 from copy import deepcopy
-from inspect import getargspec
+from inspect import signature
 from pprint import pformat
 from weakref import WeakSet
 
@@ -225,7 +225,7 @@ def depends_context(*args):
     All dependencies must be hashable.  The following keys have special
     support:
 
-    * `force_company` (value in context or current company id),
+    * `company` (value in context or current company id),
     * `uid` (current user id and superuser flag),
     * `active_test` (value in env.context or value in field.context).
     """
@@ -275,7 +275,7 @@ def downgrade(method, value, self, args, kwargs):
     if not spec:
         return value
     _, convert, _ = spec
-    if convert and len(getargspec(convert).args) > 1:
+    if convert and len(signature(convert).parameters) > 1:
         return convert(self, value, *args, **kwargs)
     elif convert:
         return convert(value)

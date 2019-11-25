@@ -234,13 +234,14 @@ class WebsiteSlides(WebsiteProfile):
     # SLIDE.CHANNEL MAIN / SEARCH
     # --------------------------------------------------
 
-    @http.route('/slides', type='http', auth="public", website=True)
+    @http.route('/slides', type='http', auth="public", website=True, sitemap=True)
     def slides_channel_home(self, **post):
         """ Home page for eLearning platform. Is mainly a container page, does not allow search / filter. """
         domain = request.website.website_domain()
         channels_all = request.env['slide.channel'].search(domain)
         if not request.env.user._is_public():
-            channels_my = channels_all.filtered(lambda channel: channel.is_member).sorted('completion', reverse=True)[:3]
+            #If a course is completed, we don't want to see it in first position but in last
+            channels_my = channels_all.filtered(lambda channel: channel.is_member).sorted(lambda channel: 0 if channel.completed else channel.completion, reverse=True)[:3]
         else:
             channels_my = request.env['slide.channel']
         channels_popular = channels_all.sorted('total_votes', reverse=True)[:3]
@@ -252,7 +253,7 @@ class WebsiteSlides(WebsiteProfile):
             challenges_done = None
         else:
             challenges = request.env['gamification.challenge'].sudo().search([
-                ('category', '=', 'slides'),
+                ('challenge_category', '=', 'slides'),
                 ('reward_id.is_published', '=', True)
             ], order='id asc', limit=5)
             challenges_done = request.env['gamification.badge.user'].sudo().search([
@@ -279,7 +280,7 @@ class WebsiteSlides(WebsiteProfile):
 
         return request.render('website_slides.courses_home', values)
 
-    @http.route('/slides/all', type='http', auth="public", website=True)
+    @http.route('/slides/all', type='http', auth="public", website=True, sitemap=True)
     def slides_channel_all(self, slide_type=None, my=False, **post):
         """ Home page displaying a list of courses displayed according to some
         criterion and search terms.
@@ -539,7 +540,7 @@ class WebsiteSlides(WebsiteProfile):
     # SLIDE.SLIDE MAIN / SEARCH
     # --------------------------------------------------
 
-    @http.route('''/slides/slide/<model("slide.slide", "[('website_id', 'in', (False, current_website_id))]"):slide>''', type='http', auth="public", website=True)
+    @http.route('''/slides/slide/<model("slide.slide"):slide>''', type='http', auth="public", website=True, sitemap=True)
     def slide_view(self, slide, **kwargs):
         if not slide.channel_id.can_access_from_current_website() or not slide.active:
             raise werkzeug.exceptions.NotFound()
@@ -733,17 +734,15 @@ class WebsiteSlides(WebsiteProfile):
 
         rank_progress = {}
         if not user_bad_answers:
+            rank_progress['previous_rank'] = self._get_rank_values(request.env.user)
             slide._action_set_quiz_done()
             slide.action_set_completed()
-            lower_bound = request.env.user.rank_id.karma_min
-            upper_bound = request.env.user.next_rank_id.karma_min
-            rank_progress = {
-                'lowerBound': lower_bound,
-                'upperBound': upper_bound,
-                'currentKarma': request.env.user.karma,
-                'motivational': request.env.user.next_rank_id.description_motivational,
-                'progress': 100 * ((request.env.user.karma - lower_bound) / (upper_bound - lower_bound))
-            }
+            rank_progress['new_rank'] = self._get_rank_values(request.env.user)
+            rank_progress.update({
+                'description': request.env.user.rank_id.description,
+                'last_rank': not request.env.user._get_next_rank(),
+                'level_up': rank_progress['previous_rank']['lower_bound'] != rank_progress['new_rank']['lower_bound']
+            })
         return {
             'goodAnswers': user_good_answers.ids,
             'badAnswers': user_bad_answers.ids,
@@ -753,6 +752,21 @@ class WebsiteSlides(WebsiteProfile):
             'quizKarmaGain': quiz_info['quiz_karma_gain'],
             'quizAttemptsCount': quiz_info['quiz_attempts_count'],
             'rankProgress': rank_progress,
+        }
+
+    def _get_rank_values(self, user):
+        lower_bound = user.rank_id.karma_min or 0
+        next_rank = user._get_next_rank()
+        upper_bound = next_rank.karma_min
+        progress = 100
+        if next_rank and (upper_bound - lower_bound) != 0:
+            progress = 100 * ((user.karma - lower_bound) / (upper_bound - lower_bound))
+        return {
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound,
+            'karma': user.karma,
+            'motivational': next_rank.description_motivational,
+            'progress': progress
         }
 
     # --------------------------------------------------

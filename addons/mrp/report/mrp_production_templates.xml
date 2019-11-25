@@ -41,8 +41,8 @@
 
                     <div t-if="o.workorder_ids">
                         <h3>
-                            <t t-if="o.state == 'done'">Operations Done</t>
-                            <t t-else="">Operations Planned</t>
+                            <span t-if="o.state == 'done'">Operations Done</span>
+                            <span t-else="">Operations Planned</span>
                         </h3>
                         <table class="table table-sm">
                             <tr>
@@ -62,12 +62,12 @@
                     </div>
 
                     <h3 t-if="o.move_raw_ids">
-                        <t t-if="o.state == 'done'">
+                        <span t-if="o.state == 'done'">
                             Consumed Products
-                        </t>
-                        <t t-else="">
+                        </span>
+                        <span t-else="">
                             Products to Consume
-                        </t>
+                        </span>
                     </h3>
 
                     <table class="table table-sm" t-if="o.move_raw_ids">
@@ -131,7 +131,7 @@
                                             <th class="table-active text-left" style="height:4rem;">
                                                 <span t-esc="move.product_id.display_name"/>
                                                 <br/>
-                                                Quantity:
+                                                <span>Quantity:</span>
                                                 <t t-if="move_line.product_uom_id.category_id.measure_type == 'unit'">
                                                     <span>1.0</span>
                                                     <span t-field="move_line.product_uom_id" groups="uom.group_uom"/>
